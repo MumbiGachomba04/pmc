@@ -166,10 +166,6 @@ void pmcx_maxclique_basic::branch(
 }
 
 
-
-
-
-
 /**
  * Dense graphs: we use ADJ matrix + CSC Representation
  * ADJ:	  O(1) edge lookups
@@ -217,8 +213,8 @@ int pmcx_maxclique_basic::search_dense(pmc_graph& G, vector<int>& sol) {
     vector<double> induce_time(num_threads,get_time());
     for (int t = 0; t < num_threads; ++t)  induce_time[t] = induce_time[t] + t/4;
 
-
-    #pragma omp parallel for schedule(dynamic) shared(pruned, G, adj, T, V, mc, C_max, induce_time) \
+std::cout<< "pmc test*************** "<< V.size()- (mc-1) <<std::endl;
+#pragma omp parallel for shared(pruned, G, adj, T, V, mc, C_max, induce_time) \
         firstprivate(colors,ind,vs,es) private(u, P, C) num_threads(num_threads)
     for (i = 0; i < (V.size()) - (mc-1); ++i) {
         if (G.time_left(C_max,sec,time_limit,time_expired_msg)) {

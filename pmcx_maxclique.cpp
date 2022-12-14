@@ -18,12 +18,13 @@
  */
 
 #include "pmc/pmcx_maxclique.h"
+#include <metis.h>
 
 using namespace std;
 using namespace pmc;
 
 int pmcx_maxclique::search(pmc_graph& G, vector<int>& sol) {
-
+    std::cout<< "pmc test1 search*************** "<< std::endl
     vertices = G.get_vertices();
     edges = G.get_edges();
 //    degree = G.get_degree();
@@ -217,8 +218,8 @@ int pmcx_maxclique::search_dense(pmc_graph& G, vector<int>& sol) {
     vector<double> induce_time(num_threads,get_time());
     for (int t = 0; t < num_threads; ++t)  induce_time[t] = induce_time[t] + t/4;
 
-
-    #pragma omp parallel for schedule(dynamic) shared(pruned, G, adj, T, V, mc, C_max, induce_time) \
+std::cout<< "pmc test2 search dense*************** "<< V.size()- (mc-1) <<std::endl;
+#pragma omp parallel for  shared(pruned, G, adj, T, V, mc, C_max, induce_time) \
         firstprivate(colors,ind,vs,es) private(u, P, C) num_threads(num_threads)
     for (i = 0; i < (V.size()) - (mc-1); ++i) {
         DEBUG_PRINTF("DEBUG current mc: %i\n", mc);

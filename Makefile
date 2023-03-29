@@ -17,7 +17,7 @@ CFLAGS      = $(OPTFLAGS) -fPIC
 
 
 CXX          = g++
-H_FILES     = pmc.h
+H_FILES     = pmc.h 
 
 
 .cpp.o:

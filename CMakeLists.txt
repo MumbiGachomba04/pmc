@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(pmc VERSION 1.0.0)
 
+
+
 set(PMC_SOURCE_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/pmc_heu.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/pmc_maxclique.cpp
@@ -23,9 +25,25 @@ target_include_directories(pmc PUBLIC
 add_executable(pmc_main pmc_driver.cpp)
 target_link_libraries(pmc_main pmc)
 
+# MPI
+find_package(MPI REQUIRED)
+
+#metis
+# find_package(METIS REQUIRED)
+# if(METIS_FOUND)
+#    include_directories("/home/mumbi/local/include")
+# else (METIS_FOUND)
+#    message(SEND_ERROR "Metis not found")
+# endif(METIS_FOUND)
+
 find_package(OpenMP REQUIRED)
-target_link_libraries(pmc OpenMP::OpenMP_CXX)
-target_link_libraries(pmc_main OpenMP::OpenMP_CXX)
+
+include_directories("/home/mumbi/metis-5.1.0/include")
+link_directories("/home/mumbi/metis-5.1.0/libmetis")
+target_link_libraries(pmc OpenMP::OpenMP_CXX MPI::MPI_CXX metis)
+target_link_libraries(pmc_main OpenMP::OpenMP_CXX MPI::MPI_CXX metis )
+
+
 
 # Installation
 include(GNUInstallDirs)

@@ -20,6 +20,10 @@
 #include "pmc/pmcx_maxclique.h"
 #include <metis.h>
 #include <fstream>
+#include <vector>
+#include<algorithm> 
+#include<iterator>
+
 
 #include <mpi.h>
 
@@ -184,124 +188,243 @@ void pmcx_maxclique::branch(
  * CSC:	  O(1) time to compute degree
  *
  */
+
+//  void library_onexit(void)
+// {
+//    int flag;
+
+//    MPI_Finalized(&flag);
+//    if (!flag)
+//       MPI_Finalize();
+// }
+
+//  void library_init(void)
+// {
+//    int flag;
+
+//    MPI_Initialized(&flag);
+//    if (!inited)
+//    {
+//       MPI_Init(NULL, NULL);
+//       atexit(library_onexit);
+//    }
+//}
+
+
 int pmcx_maxclique::search_dense(pmc_graph& G, vector<int>& sol) {
    
   vertices = G.get_vertices();
   edges = G.get_edges();
-  
   int numproc,rank;
   MPI_Comm_size(MPI_COMM_WORLD,&numproc);
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
   cout << "rank search dense****** : " << rank << endl;
-  //if (rank == 0){
+  vector<int> local_rowptr;
+  vector<int> local_colind;
+  vector<int> partition_nedges(numproc);
+  vector<int>  partition_nvertices(numproc);
+ 
+  if (rank == 0){
 
-     // Convert the graph to a CSR (Compressed Sparse Row) format
+        idx_t num_of_vertices =  G.vertices.size();
+        cout << "vertex size****** : " << num_of_vertices<< endl;
+        idx_t num_of_edges =  G.edges.size();
+    // graph to a CSR (Compressed Sparse Row) format
+        idx_t *rowptr = new idx_t [num_of_vertices ] ;
+        idx_t *colind = new idx_t [num_of_edges] ;
+
+        cout << "Saving rowpointers and column indices to file" << endl;
+        ofstream myrpfile;
+        myrpfile.open ("rowptr.txt");
+        if( !myrpfile ) { // file couldn't be opened
+        cerr << "Error: rp file could not be opened" << endl;
+        exit(1);
+        }
+        ofstream mycolindfile;
+        mycolindfile.open("colind.txt");
+        if( !mycolindfile ) { // file couldn't be opened
+        cerr << "Error: colind file could not be opened" << endl;
+        exit(1);
+        }
+        ofstream mypartrpfile;
+        ofstream mypartcolindfile;
+
+        for (int j = 0; j< num_of_edges ; j++) {
+           colind[j] = (idx_t) G.edges[j];
+        }
+
+        for (int m = 0; m< num_of_vertices ; m++){
+            rowptr[m] = (idx_t) G.vertices[m] ;
+        }
+
+        for (int i = 0; i< num_of_vertices ; i++) {     
+        myrpfile << rowptr[i] << endl ;
+        for (int c = rowptr[i] ; c < rowptr[i+1]; c++){
+            mycolindfile << colind[c] << " " ;     
+        }
+        mycolindfile << endl;
+        }
+        myrpfile.close();
+        mycolindfile.close();
+        cout << "files closed " << endl;
+        cout << "before partition " << endl;
+
+        // Set up the options for the partitioning
+        idx_t options[METIS_NOPTIONS];
+        METIS_SetDefaultOptions(options); 
+        options[METIS_OPTION_DBGLVL] = 255; // adjust debugging level of metis
+        options[METIS_OPTION_OBJTYPE] = METIS_OBJTYPE_CUT;
+        options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;
+        options[METIS_OPTION_IPTYPE] = METIS_IPTYPE_GROW;
+        options[METIS_OPTION_RTYPE] = METIS_RTYPE_FM;
+        options[METIS_OPTION_NCUTS] = 1;
+        options[METIS_OPTION_NITER] = 10;
+        //TODO : check options[METIS OPTION NUMBERING]
+        idx_t nparts = numproc ; // To be changed to numproc
+        cout << "nparts : " << nparts  << endl;
+        cout << "n vertices : " << num_of_vertices  << endl;
+        cout << "n edges : " << num_of_edges  << endl;
+        idx_t objval ;
+        idx_t constraints = 1;
+        idx_t *part = new idx_t [num_of_vertices];
+        num_of_vertices--;
+        cout << "partitioning...  " << endl;
+        int status =  METIS_PartGraphKway(&num_of_vertices,&constraints  /*balance constraints*/, rowptr, colind,NULL, NULL, NULL, &nparts,
+        NULL,NULL,options, &objval/* output NO OF EDGES OF PART*/, part /*shows which vertex has been assigned to which part*/);
+        cout << "objval : " << objval << endl;
+        cout << "partition done" << endl;
+
+        /*
+        TODO:
+          1. create 2D array for Partition column indices [number of parts] [adjacecyvals for that partition]
+          2. create 2D array for Partition rowptrs [number of parts] [ptrs for that partition ]
+          3. distribute the 1D arrays to the respective processes
+        
+        */
+    mypartcolindfile.open("partcolind.txt");
+    if( !mypartcolindfile) { // file couldn't be opened
+        cerr << "Error: partition colind file could not be opened" << endl;
+        exit(1);
+     }
+    mypartrpfile.open ("partrowptr.txt");
+    if( !mypartrpfile ) { // file couldn't be opened
+        cerr << "Error:partition  rp file could not be opened" << endl;
+        exit(1);
+    }
     
-    idx_t num_of_vertices =  G.vertices.size();
-    cout << "vertex size****** : " << num_of_vertices<< endl;
-    idx_t num_of_edges =  G.edges.size();
-    idx_t *rowptr = new idx_t [num_of_vertices ] ;
-    idx_t *colind = new idx_t [num_of_edges] ;
-    cout << "Saving rowpointers and column indices to file" << endl;
+        
+    // store partitions in 2D arrays of row ptr and column ids
+   
+    vector<vector<idx_t>> partition_rowptr(nparts);
+    vector<vector<idx_t>> partition_colidx(nparts); 
 
-    ofstream myrpfile;
-    myrpfile.open ("rowptr.txt");
-    if( !myrpfile ) { // file couldn't be opened
-      cerr << "Error: rp file could not be opened" << endl;
-      exit(1);
-    }
-    ofstream mycolindfile;
-    mycolindfile.open("colind.txt");
-    if( !mycolindfile ) { // file couldn't be opened
-      cerr << "Error: colind file could not be opened" << endl;
-      exit(1);
-    }
-
-    for (int j = 0; j< num_of_edges ; j++) {
-       
-
-       colind[j] = (idx_t) G.edges[j];
-       if (j < 100){cout << j << " " << colind[j] << " " <<G.edges[j] << endl;}
-
-       
-    }
-
-   for (int m = 0; m< num_of_vertices ; m++){
-
-   rowptr[m] = (idx_t) G.vertices[m] ;
-
+    vector<int> maps(num_of_vertices);
+    vector<int> cnt(nparts,0);
+    vector<int> nz(nparts,0);
+    vector<int> rpcounter(nparts,1);
+  
+    int sz = num_of_vertices;
+   //initialise to 0
+   for (int p = 0; p < nparts; p++){
+       partition_nedges[p] = 0;
+       partition_nvertices[p] = 0;
    }
 
 
-    for (int i = 0; i< num_of_vertices ; i++) {     
-       myrpfile << rowptr[i] << endl ;
-        cout << rowptr[i] << " " << rowptr[i+1]<< endl;
-       for (int c = rowptr[i] ; c < rowptr[i+1]; c++){
-        
-          cout << i << " " << c << " "<< colind[c]<< endl;
-          mycolindfile << colind[c] << " " ;
-          
-       }
-       mycolindfile << endl;
+
+    for (int i = 0; i < sz ; i++) {
+        partition_nvertices[part[i]]++;
+        maps[i]= cnt[part[i]]++;
+        for (int j = rowptr[i]; j < rowptr[i + 1]; j++) {
+             if (part[colind[j]]== part[i]){
+                partition_nedges[part[i]]++;
+                }
+        }
+
     }
-    
-
-    myrpfile.close();
-    mycolindfile.close();
-    cout << "files closed " << endl;
-   cout << "before partition " << endl;
-   cout << "test" << endl;
 
 
-  
- 
 
-//    for (int k = 0 ; k< 10;k++){
-      
-//       cout << "rowptr: " << rowptr[k]<< endl;
-//       cout << "colind: " << colind[k]<< endl;
-//    }
-//     cout << "test2" << endl;
-//    for (int k = G.vertices.size()-1; k>= G.vertices.size()-11; k--){
-      
-//       cout << "rowptr: " << rowptr[k]<< endl;
-//       cout << "colind: " << colind[k]<< endl;
-//    }
-
-    // Set up the options for the partitioning
-    idx_t options[METIS_NOPTIONS];
-    METIS_SetDefaultOptions(options); 
-    options[METIS_OPTION_DBGLVL] = 255;
-    idx_t nparts = 8;
-    cout << "nparts : " << nparts  << endl;
-    cout << "n vertices : " << num_of_vertices  << endl;
-    cout << "n edges : " << num_of_edges  << endl;
-    idx_t objval ;
-    idx_t constraints = 1;
-    idx_t *part = new idx_t [num_of_vertices];
-    num_of_vertices--;
-    // ----------------Everything works until here-------------//
-    // idx_t rowptr [16] = {0, 2, 5 ,8, 11, 13, 16, 20, 24, 28, 31 ,33 ,36, 39,42, 44};
-    // idx_t colind [44] = { 1,5, 0, 2 ,6 ,1, 3, 7, 2, 4,8 , 3, 9,0, 6, 10, 1, 5,7 ,11 ,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13};
-    //idx_t options[METIS_NOPTIONS];
-    // METIS_SetDefaultOptions(options);
-    // idx_t num_of_vertices =  15;
-    // idx_t constraints = 1;
-    // idx_t nparts = 2;
-    // idx_t objval ;
-    // idx_t *part = new idx_t [num_of_vertices];
-    cout << "partitioning... : " << endl;
-    int status =  METIS_PartGraphKway(&num_of_vertices,&constraints  /*balance constraints*/, rowptr, colind,NULL, NULL, NULL, &nparts,
-    NULL,NULL,options, &objval/* output NO OF EDGES OF PART*/, part /*output NO OF vertices OF PART*/);
-    for (int j = 0; j<num_of_vertices ; j++) {
-       cout << part[j] ;
+    // Add final row pointer for each partition
+    for (int p = 0; p < nparts; p++) {
+        partition_rowptr[p].resize(partition_nvertices[p]+1);
+        partition_colidx[p].resize(partition_nedges[p]);
+        partition_rowptr[p][0] = 0;
     }
-     cout << "objval : " << objval << endl;
-     cout << "partition done" << endl;
-//}
+    cout << "OK 1" << endl;
     
+    for (int i = 0; i < sz ; i++) {
+        int p = part[i]; // Get partition of current vertex
+        for (int j = rowptr[i]; j < rowptr[i + 1]; j++) {
+            int neighbor = colind[j];
+
+            if (part[neighbor]== p){
+                partition_colidx[p][nz[p]] = maps[neighbor];
+                nz[p]++;
+                }
    
+        }
+
+        partition_rowptr[p][rpcounter[p]++] = nz[p];
+
+    }
+     cout << "OK 2" << endl;
+
+     cout << "Partition csr structure created" << endl;
+    // save to file
+    for (int r = 0 ; r < nparts ; r++){
+      mypartrpfile << "part "<< r << endl;  
+      for (int w = 0 ; w < partition_rowptr[r].size() ; w++){
+          mypartrpfile << partition_rowptr[r][w] << " ";
+        }
+       mypartrpfile << endl;
+       mypartrpfile << endl;
+     }
+
+    for (int r = 0 ; r < nparts ; r++){
+      mypartcolindfile << "part "<< r << endl;  
+      for (int w = 0 ; w < partition_colidx[r].size() ; w++){
+          mypartcolindfile<< partition_colidx[r][w] << " ";
+        }
+       mypartcolindfile << endl;
+       mypartcolindfile << endl;
+     }
+
+      mypartcolindfile.close();
+      mypartrpfile.close();
+      cout << "Broadcast size of arrays.." << endl;
+      MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
+      MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
+      local_rowptr.resize(partition_nvertices[0]);
+      local_colind.resize(partition_nedges[0]);
+      cout << "Copy to local.." << endl;
+      copy(partition_rowptr[0].begin(), partition_rowptr[0].end(), local_rowptr.begin());
+      copy(partition_colidx[0].begin(), partition_colidx[0].end(), local_colind.begin());
+      for(int i=1; i< numproc;i++){
+     //send rowptr and colind partition to other processes
+	     MPI_Send(&partition_rowptr[rank], partition_nvertices[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
+         MPI_Send(&partition_colidx[rank], partition_nedges[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
+     }
+
+
+}
+
+else{
+    MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
+    MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
+    local_rowptr.resize(partition_nvertices[0]);
+    local_colind.resize(partition_nedges[0]);
+    MPI_Recv(&local_rowptr[rank], partition_nvertices[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+    MPI_Recv(&local_colind[rank], partition_nedges[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+    cout << "rank: " << rank << " r : " << local_rowptr[rank]<< endl;
+    cout << "rank: " << rank << " c : " << local_colind[rank]<< endl;
+
+
+}
+
 //    degree = G.get_degree();
+if (rank == 0){
+
     auto adj = G.adj;
 
     int* pruned = new int[G.num_vertices()];
@@ -391,6 +514,8 @@ cout<< "pmc test2 search dense*************** "<< V.size()- (mc-1) <<endl;
     G.print_break();
     return sol.size();
 }
+  // MPI_Finalize(); 
+}
 
 
 void pmcx_maxclique::branch_dense(
@@ -449,5 +574,57 @@ void pmcx_maxclique::branch_dense(
     }
 }
 
+   //     vector<vector<idx_t>> partition_rowptr(nparts);
+    //     vector<vector<idx_t>> partition_colidx(nparts); 
+    //      cout << "OK 1"  << endl;
+    //     // Initialize vectors to keep track of the number of vertices and edges in each partition
+    //     vector<idx_t> partition_num_vertices(nparts, 0);
+    //     cout << "OK 2"  << endl;
+    //     vector<vector<idx_t>> temp_rowptr(nparts, vector<idx_t>(num_of_vertices+1));
+    //     vector<vector<idx_t>> temp_colidx(nparts);
+    //     cout << "OK 3"  << endl;
+
+
+    // // Compute the number of vertices belonging to each partition
+    //     for (idx_t i = 0; i < num_of_vertices; i++) {
+    //         partition_num_vertices[part[i]]++;
+    //     }
+
+    // int sz = sizeof(rowptr)/ sizeof(idx_t);
+    // cout << "OK 4"  << endl;
+    // // Create row pointer and column index arrays for each partition
+    //     for (int i = 0; i < sz ; i++) {
+    //         int partition_i = part[i]; // first vertex of a pair
+    //         temp_rowptr[partition_i][i + 1] = rowptr[i + 1] - rowptr[i]; // we start from i+1 coz first value is zero
+    //         partition_rowptr[partition_i].push_back(temp_rowptr[partition_i][i + 1]);
+    //         for (int j = rowptr[i]; j < rowptr[i + 1]; j++) { //iterate over the adjacent vertices
+    //             int partition_j = part[colind[j]]; // second vertex of a pair
+    //             temp_colidx[partition_i].push_back(colind[j]);// add vertex that is in the same partition
+    //             if (partition_i != partition_j) { // check if the two vertices are in same partition
+    //                 partition_colidx[partition_i].push_back(colind[j]); // if not, add the second vertex to partition of the first
+    //             } else {
+    //                 temp_rowptr[partition_i][i + 1]++; // increment row pointer value by one
+    //             }
+    //         }
+    //     }
+    // cout << "OK 5"  << endl;
+    // // Convert the row pointer arrays to actual row pointers
+    // for (idx_t i = 0; i < nparts; i++) {
+    //     int nnz = temp_colidx[i].size();
+    //     partition_rowptr[i].resize(partition_num_vertices[i] + 1);
+    //     cout << "OK 5.1"  << endl;
+    //     for (idx_t j = 0; j < partition_num_vertices[i]; j++) {
+    //         partition_rowptr[i][j + 1] = partition_rowptr[i][j] + temp_rowptr[i][j + 1];
+    //         mypartrpfile << partition_rowptr[i][j + 1] << " ";
+    //     }
+    //     cout << "OK 5.2"  << endl;
+    //     partition_colidx[i].resize(nnz);
+    //     copy(temp_colidx[i].begin(), temp_colidx[i].end(), partition_colidx[i].begin());
+    //     cout << "OK 5.3"  << endl;
+    //     for (int c = 0 ; c < nnz; c++){
+    //         mypartcolindfile << temp_colidx[i][c]<< " ";
+    //     }
+
+    // }
 
 

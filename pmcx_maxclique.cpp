@@ -18,7 +18,7 @@
  */
 
 #include "pmc/pmcx_maxclique.h"
-#include <metis.h>
+
 #include <fstream>
 #include <vector>
 #include<algorithm> 
@@ -31,12 +31,6 @@ using namespace std;
 using namespace pmc;
 
 int pmcx_maxclique::search(pmc_graph& G, vector<int>& sol) {
-    
-    
-  int numproc,rank;
-  MPI_Comm_size(MPI_COMM_WORLD,&numproc);
-  MPI_Comm_rank(MPI_COMM_WORLD,&rank);
-  cout << "rank seach****** : " << rank << endl;
   vertices = G.get_vertices();
   edges = G.get_edges();
 
@@ -215,215 +209,19 @@ int pmcx_maxclique::search_dense(pmc_graph& G, vector<int>& sol) {
    
   vertices = G.get_vertices();
   edges = G.get_edges();
-  int numproc,rank;
-  MPI_Comm_size(MPI_COMM_WORLD,&numproc);
-  MPI_Comm_rank(MPI_COMM_WORLD,&rank);
-  cout << "rank search dense****** : " << rank << endl;
-  vector<int> local_rowptr;
-  vector<int> local_colind;
-  vector<int> partition_nedges(numproc);
-  vector<int>  partition_nvertices(numproc);
- 
-  if (rank == 0){
-
-        idx_t num_of_vertices =  G.vertices.size();
-        cout << "vertex size****** : " << num_of_vertices<< endl;
-        idx_t num_of_edges =  G.edges.size();
-    // graph to a CSR (Compressed Sparse Row) format
-        idx_t *rowptr = new idx_t [num_of_vertices ] ;
-        idx_t *colind = new idx_t [num_of_edges] ;
-
-        cout << "Saving rowpointers and column indices to file" << endl;
-        ofstream myrpfile;
-        myrpfile.open ("rowptr.txt");
-        if( !myrpfile ) { // file couldn't be opened
-        cerr << "Error: rp file could not be opened" << endl;
-        exit(1);
-        }
-        ofstream mycolindfile;
-        mycolindfile.open("colind.txt");
-        if( !mycolindfile ) { // file couldn't be opened
-        cerr << "Error: colind file could not be opened" << endl;
-        exit(1);
-        }
-        ofstream mypartrpfile;
-        ofstream mypartcolindfile;
-
-        for (int j = 0; j< num_of_edges ; j++) {
-           colind[j] = (idx_t) G.edges[j];
-        }
-
-        for (int m = 0; m< num_of_vertices ; m++){
-            rowptr[m] = (idx_t) G.vertices[m] ;
-        }
-
-        for (int i = 0; i< num_of_vertices ; i++) {     
-        myrpfile << rowptr[i] << endl ;
-        for (int c = rowptr[i] ; c < rowptr[i+1]; c++){
-            mycolindfile << colind[c] << " " ;     
-        }
-        mycolindfile << endl;
-        }
-        myrpfile.close();
-        mycolindfile.close();
-        cout << "files closed " << endl;
-        cout << "before partition " << endl;
-
-        // Set up the options for the partitioning
-        idx_t options[METIS_NOPTIONS];
-        METIS_SetDefaultOptions(options); 
-        options[METIS_OPTION_DBGLVL] = 255; // adjust debugging level of metis
-        options[METIS_OPTION_OBJTYPE] = METIS_OBJTYPE_CUT;
-        options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;
-        options[METIS_OPTION_IPTYPE] = METIS_IPTYPE_GROW;
-        options[METIS_OPTION_RTYPE] = METIS_RTYPE_FM;
-        options[METIS_OPTION_NCUTS] = 1;
-        options[METIS_OPTION_NITER] = 10;
-        //TODO : check options[METIS OPTION NUMBERING]
-        idx_t nparts = numproc ; // To be changed to numproc
-        cout << "nparts : " << nparts  << endl;
-        cout << "n vertices : " << num_of_vertices  << endl;
-        cout << "n edges : " << num_of_edges  << endl;
-        idx_t objval ;
-        idx_t constraints = 1;
-        idx_t *part = new idx_t [num_of_vertices];
-        num_of_vertices--;
-        cout << "partitioning...  " << endl;
-        int status =  METIS_PartGraphKway(&num_of_vertices,&constraints  /*balance constraints*/, rowptr, colind,NULL, NULL, NULL, &nparts,
-        NULL,NULL,options, &objval/* output NO OF EDGES OF PART*/, part /*shows which vertex has been assigned to which part*/);
-        cout << "objval : " << objval << endl;
-        cout << "partition done" << endl;
-
-        /*
-        TODO:
-          1. create 2D array for Partition column indices [number of parts] [adjacecyvals for that partition]
-          2. create 2D array for Partition rowptrs [number of parts] [ptrs for that partition ]
-          3. distribute the 1D arrays to the respective processes
-        
-        */
-    mypartcolindfile.open("partcolind.txt");
-    if( !mypartcolindfile) { // file couldn't be opened
-        cerr << "Error: partition colind file could not be opened" << endl;
-        exit(1);
-     }
-    mypartrpfile.open ("partrowptr.txt");
-    if( !mypartrpfile ) { // file couldn't be opened
-        cerr << "Error:partition  rp file could not be opened" << endl;
-        exit(1);
-    }
-    
-        
-    // store partitions in 2D arrays of row ptr and column ids
-   
-    vector<vector<idx_t>> partition_rowptr(nparts);
-    vector<vector<idx_t>> partition_colidx(nparts); 
-
-    vector<int> maps(num_of_vertices);
-    vector<int> cnt(nparts,0);
-    vector<int> nz(nparts,0);
-    vector<int> rpcounter(nparts,1);
-  
-    int sz = num_of_vertices;
-   //initialise to 0
-   for (int p = 0; p < nparts; p++){
-       partition_nedges[p] = 0;
-       partition_nvertices[p] = 0;
-   }
-
-
-
-    for (int i = 0; i < sz ; i++) {
-        partition_nvertices[part[i]]++;
-        maps[i]= cnt[part[i]]++;
-        for (int j = rowptr[i]; j < rowptr[i + 1]; j++) {
-             if (part[colind[j]]== part[i]){
-                partition_nedges[part[i]]++;
-                }
-        }
-
-    }
-
-
-
-    // Add final row pointer for each partition
-    for (int p = 0; p < nparts; p++) {
-        partition_rowptr[p].resize(partition_nvertices[p]+1);
-        partition_colidx[p].resize(partition_nedges[p]);
-        partition_rowptr[p][0] = 0;
-    }
-    cout << "OK 1" << endl;
-    
-    for (int i = 0; i < sz ; i++) {
-        int p = part[i]; // Get partition of current vertex
-        for (int j = rowptr[i]; j < rowptr[i + 1]; j++) {
-            int neighbor = colind[j];
-
-            if (part[neighbor]== p){
-                partition_colidx[p][nz[p]] = maps[neighbor];
-                nz[p]++;
-                }
-   
-        }
-
-        partition_rowptr[p][rpcounter[p]++] = nz[p];
-
-    }
-     cout << "OK 2" << endl;
-
-     cout << "Partition csr structure created" << endl;
-    // save to file
-    for (int r = 0 ; r < nparts ; r++){
-      mypartrpfile << "part "<< r << endl;  
-      for (int w = 0 ; w < partition_rowptr[r].size() ; w++){
-          mypartrpfile << partition_rowptr[r][w] << " ";
-        }
-       mypartrpfile << endl;
-       mypartrpfile << endl;
-     }
-
-    for (int r = 0 ; r < nparts ; r++){
-      mypartcolindfile << "part "<< r << endl;  
-      for (int w = 0 ; w < partition_colidx[r].size() ; w++){
-          mypartcolindfile<< partition_colidx[r][w] << " ";
-        }
-       mypartcolindfile << endl;
-       mypartcolindfile << endl;
-     }
-
-      mypartcolindfile.close();
-      mypartrpfile.close();
-      cout << "Broadcast size of arrays.." << endl;
-      MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
-      MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
-      local_rowptr.resize(partition_nvertices[0]);
-      local_colind.resize(partition_nedges[0]);
-      cout << "Copy to local.." << endl;
-      copy(partition_rowptr[0].begin(), partition_rowptr[0].end(), local_rowptr.begin());
-      copy(partition_colidx[0].begin(), partition_colidx[0].end(), local_colind.begin());
-      for(int i=1; i< numproc;i++){
-     //send rowptr and colind partition to other processes
-	     MPI_Send(&partition_rowptr[rank], partition_nvertices[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
-         MPI_Send(&partition_colidx[rank], partition_nedges[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
-     }
-
-
-}
-
-else{
-    MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
-    MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
-    local_rowptr.resize(partition_nvertices[0]);
-    local_colind.resize(partition_nedges[0]);
-    MPI_Recv(&local_rowptr[rank], partition_nvertices[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-    MPI_Recv(&local_colind[rank], partition_nedges[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-    cout << "rank: " << rank << " r : " << local_rowptr[rank]<< endl;
-    cout << "rank: " << rank << " c : " << local_colind[rank]<< endl;
-
-
-}
-
-//    degree = G.get_degree();
-if (rank == 0){
+    //   cout << "Broadcast size of arrays.." << endl;
+    //   MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
+    //   MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
+    //   local_rowptr.resize(partition_nvertices[0]);
+    //   local_colind.resize(partition_nedges[0]);
+    //   cout << "Copy to local.." << endl;
+    //   copy(partition_rowptr[0].begin(), partition_rowptr[0].end(), local_rowptr.begin());
+    //   copy(partition_colidx[0].begin(), partition_colidx[0].end(), local_colind.begin());
+    //   for(int i=1; i< numproc;i++){
+    //  //send rowptr and colind partition to other processes
+	//      MPI_Send(&partition_rowptr[rank], partition_nvertices[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
+    //      MPI_Send(&partition_colidx[rank], partition_nedges[i] ,MPI_INT,i,123,MPI_COMM_WORLD);
+    //    }
 
     auto adj = G.adj;
 
@@ -514,8 +312,115 @@ cout<< "pmc test2 search dense*************** "<< V.size()- (mc-1) <<endl;
     G.print_break();
     return sol.size();
 }
+
+// else{
+//     MPI_Bcast(&partition_nedges[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nedges Array to all processes
+//     MPI_Bcast(&partition_nvertices[0] ,numproc ,MPI_INT,0,MPI_COMM_WORLD); // broadcast partition_nvertices Array to all processes
+//     local_rowptr.resize(partition_nvertices[0]);
+//     local_colind.resize(partition_nedges[0]);
+//     MPI_Recv(&local_rowptr[rank], partition_nvertices[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+//     MPI_Recv(&local_colind[rank], partition_nedges[rank] , MPI_INT,0,123,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+//     cout << "rank: " << rank << " r : " << local_rowptr[rank]<< endl;
+//     cout << "rank: " << rank << " c : " << local_colind[rank]<< endl;
+
+
+// }
+
+//    degree = G.get_degree();
+//if (rank == 0){
+  
+//***************************************************
+    //auto adj = G.adj;
+
+//     int* pruned = new int[G.num_vertices()];
+//     memset(pruned, 0, G.num_vertices() * sizeof(int));
+//     int mc = lb, i = 0, u = 0;
+
+//     // initial pruning
+//     int lb_idx = G.initial_pruning(G, pruned, lb, adj);
+
+//     // set to worst case bound of cores/coloring
+//     vector<Vertex> P, T;
+//     P.reserve(G.get_max_degree()+1);
+//     T.reserve(G.get_max_degree()+1);
+
+//     vector<int> C, C_max;
+//     C.reserve(G.get_max_degree()+1);
+//     C_max.reserve(G.get_max_degree()+1);
+
+//     // init the neigh coloring array
+//     // in theory, this should be G.get_max_core()+1, but
+//     // the starting color is 1, not 0, so that's +2
+//     // and then there is an extra off-by-one error that makes +3
+//     vector< vector<int> > colors(G.get_max_core()+3);
+//     for (int i = 0; i < G.get_max_core()+1; i++)  colors[i].reserve(G.get_max_core()+1);
+
+//     // order verts for our search routine
+//     vector<Vertex> V;
+//     V.reserve(G.num_vertices());
+//     G.order_vertices(V,G,lb_idx,lb,vertex_ordering,decr_order);
+//     DEBUG_PRINTF("|V| = %i\n", V.size());
+
+//     vector<short> ind(G.num_vertices(),0);
+//     vector<int> es = G.get_edges_array();
+//     vector<long long> vs = G.get_vertices_array();
+
+//     vector<double> induce_time(num_threads,get_time());
+//     for (int t = 0; t < num_threads; ++t)  induce_time[t] = induce_time[t] + t/4;
+
+// cout<< "pmc test2 search dense*************** "<< V.size()- (mc-1) <<endl;
+// #pragma omp parallel for  shared(pruned, G, adj, T, V, mc, C_max, induce_time) \
+//         firstprivate(colors,ind,vs,es) private(u, P, C) num_threads(num_threads)
+//     for (i = 0; i < (V.size()) - (mc-1); ++i) {
+//         DEBUG_PRINTF("DEBUG current mc: %i\n", mc);
+//         if (not_reached_ub) {
+//             if (G.time_left(C_max,sec,time_limit,time_expired_msg)) {
+
+//                 u = V[i].get_id();
+//                 if ((*bound)[u] > mc) {
+//                     P.push_back(V[i]);
+//                     for (long long j = vs[u]; j < vs[u + 1]; ++j)
+//                         if (!pruned[es[j]])
+//                             if ((*bound)[es[j]] > mc)
+//                             	P.push_back(Vertex(es[j], (vs[es[j]+1] - vs[es[j]]) )); /// local
+
+//                     if (P.size() > mc) {
+//                         // neighborhood core ordering and pruning
+//                         neigh_cores_bound(vs,es,P,ind,mc);
+//                         if (P.size() > mc && P[0].get_bound() >= mc) {
+//                             neigh_coloring_dense(vs,es,P,ind,C,C_max,colors,mc, adj);
+//                             if (P.back().get_bound() > mc) {
+//                                 branch_dense(vs,es,P, ind, C, C_max, colors, pruned, mc, adj);
+//                             }
+//                         }
+//                     }
+//                     P = T;
+//                 }
+//                 pruned[u] = 1;
+//                 for (long long j = vs[u]; j < vs[u + 1]; j++) {
+//                     adj[u][es[j]] = false;
+//                     adj[es[j]][u] = false;
+//                 }
+
+//                 // dynamically reduce graph in a thread-safe manner
+//                 if ((get_time() - induce_time[omp_get_thread_num()]) > wait_time) {
+//                     G.reduce_graph( vs, es, pruned, G, i+lb_idx, mc);
+//                     G.graph_stats(G, mc, i+lb_idx, sec);
+//                     induce_time[omp_get_thread_num()] = get_time();
+//                 }
+//             }
+//         }
+//     }
+
+//     if (pruned) delete[] pruned;
+
+//     sol.resize(mc);
+//     for (int i = 0; i < C_max.size(); i++)  sol[i] = C_max[i];
+//     G.print_break();
+//     return sol.size();
+//}
   // MPI_Finalize(); 
-}
+//}
 
 
 void pmcx_maxclique::branch_dense(
